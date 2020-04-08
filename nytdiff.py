@@ -38,8 +38,6 @@ if 'LOG_FOLDER' in os.environ:
 else:
     LOG_FOLDER = ''
 
-PHANTOMJS_PATH = os.environ['PHANTOMJS_PATH']
-
 
 class BaseParser(object):
     def __init__(self, api):
@@ -159,25 +157,6 @@ class BaseParser(object):
         self.update_tweet_db(article_id, tweet_id, column)
         return
 
-    def get_page(self, url, header=None, payload=None):
-        for x in range(MAX_RETRIES):
-            try:
-                r = requests.get(url=url, headers=header, params=payload)
-            except BaseException as e:
-                if x == MAX_RETRIES - 1:
-                    print ('Max retries reached')
-                    logging.warning('Max retries for: %s', url)
-                    return None
-                if '104' not in str(e):
-                    print('Problem with url {}'.format(url))
-                    print('Exception: {}'.format(str(e)))
-                    logging.exception('Problem getting page')
-                    return None
-                time.sleep(RETRY_DELAY)
-            else:
-                break
-        return r
-
     def strip_html(self, html_str):
         """
         a wrapper for bleach.clean() that strips ALL tags from the input
@@ -215,9 +194,8 @@ class BaseParser(object):
         with open('tmp.html', 'w') as f:
             f.write(html)
 
-        driver = webdriver.PhantomJS(
-            executable_path=PHANTOMJS_PATH + 'phantomjs')
-        driver.get('tmp.html')
+        driver = webdriver.Chrome("/usr/local/bin/chromedriver")
+        driver.get('file://%s/tmp.html' % os.getcwd())
         e = driver.find_element_by_xpath('//p')
         start_height = e.location['y']
         block_height = e.size['height']
@@ -335,47 +313,11 @@ class NYTParser(BaseParser):
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
 
-    def loop_data(self, data):
-        if 'results' not in data:
-            return False
-        for article in data['results']:
-            try:
-                article_dict = self.json_to_dict(article)
-                if article_dict is not None:
-                    self.store_data(article_dict)
-                    self.current_ids.add(article_dict['article_id'])
-            except BaseException as e:
-                logging.exception('Problem looping NYT: %s', article)
-                print ('Exception: {}'.format(str(e)))
-                print('***************')
-                print(article)
-                print('***************')
-                return False
-        return True
-
-    def parse_pages(self):
-        r = self.get_page(self.urls[0], None, self.payload)
-        if r is None or len(r.text) == 0:
-            logging.warning('Empty response NYT')
-            return
-        try:
-            data = json.loads(r.text, strict=False)
-        except BaseException as e:
-            logging.exception('Problem parsing page: %s', r.text)
-            print (e)
-            print (len(r.text))
-            print (type(r.text))
-            print (r.text)
-            print ('----')
-            return
-        loop = self.loop_data(data)
-        if loop:
-            self.remove_old('article_id')
 
 class RSSParser(BaseParser):
-    def __init__(self, api, rss_url):
+    def __init__(self, api, rss_urls):
         BaseParser.__init__(self, api)
-        self.urls = [rss_url]
+        self.urls = rss_urls
         self.articles_table = self.db['rss_ids']
         self.versions_table = self.db['rss_versions']
 
@@ -384,10 +326,8 @@ class RSSParser(BaseParser):
         article_dict['article_id'] = article.id.split(' ')[0]
         article_dict['url'] = article.link
         article_dict['title'] = article.title
-        article_dict['abstract'] = self.strip_html(article.description)
-        article_dict['author'] = article.author
-        # article_dict['illustration'] = article.media_content[0]['url']
-        # article_dict['illustartion_size'] = article.media_content[0]['filesize']
+        article_dict['abstract'] = self.strip_html(article.description) if article.description is not None else ""
+        article_dict['author'] = article.author  if 'author' in article else ""
         od = collections.OrderedDict(sorted(article_dict.items()))
         article_dict['hash'] = hashlib.sha224(
             repr(od.items()).encode('utf-8')).hexdigest()
@@ -395,8 +335,7 @@ class RSSParser(BaseParser):
         return article_dict
 
     def store_data(self, data):
-        if self.articles_table.find_one(
-                article_id=data['article_id']) is None:  # New
+        if self.articles_table.find_one(article_id=data['article_id']) is None:  # New
             article = {
                 'article_id': data['article_id'],
                 'add_dt': data['date_time'],
@@ -409,16 +348,13 @@ class RSSParser(BaseParser):
             self.versions_table.insert(data)
         else:
             # re insert
-            if self.articles_table.find_one(article_id=data['article_id'],
-                                            status='removed') is not None:
+            if self.articles_table.find_one(article_id=data['article_id'], status='removed') is not None:
                 article = {
                     'article_id': data['article_id'],
                     'add_dt': data['date_time'],
                 }
 
-            count = self.versions_table.count(
-                self.versions_table.table.columns.article_id == data[
-                    'article_id'],
+            count = self.versions_table.count(self.versions_table.table.columns.article_id == data['article_id'],
                 hash=data['hash'])
             if count == 1:  # Existing
                 pass
@@ -434,22 +370,22 @@ class RSSParser(BaseParser):
                     url = data['url']
                     if row['url'] != data['url']:
                         if self.show_diff(row['url'], data['url']):
-                            tweet_text = "Modification d'URL"
+                            tweet_text = "Modificación de Url"
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
                     if row['title'] != data['title']:
                         if self.show_diff(row['title'], data['title']):
-                            tweet_text = "Modification du Titre"
+                            tweet_text = "Modificación de Titulo"
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
                     if row['abstract'] != data['abstract']:
                         if self.show_diff(row['abstract'], data['abstract']):
-                            tweet_text = "Modification de la Description"
+                            tweet_text = "Modificación de la Descripción"
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
                     if row['author'] != data['author']:
                         if self.show_diff(row['author'], data['author']):
-                            tweet_text = "Modification de l'auteur"
+                            tweet_text = "Modificación del autor"
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
 
@@ -472,15 +408,21 @@ class RSSParser(BaseParser):
         return True
 
     def parse_rss(self):
-        r = feedparser.parse(self.urls[0])
-        if r is None:
-            logging.warning('Empty response RSS')
-            return
-        else:
-            logging.info('Parsing %s', r.feed.title)
-        loop = self.loop_entries(r.entries)
-        if loop:
-            self.remove_old('article_id')
+        for rss in self.urls:
+            logging.info('Parsing from %s', rss)
+            r = feedparser.parse(rss)
+            if r is None:
+                logging.warning('Empty response RSS')
+                return
+            elif 'title' in r.feed:
+                logging.info('Parsing %s', r.feed.title)
+                loop = self.loop_entries(r.entries)
+                if loop:
+                    self.remove_old('article_id')
+            else:
+                logging.info('Skipping %s', r.feed)
+
+
 
 def main():
     # logging
@@ -491,10 +433,10 @@ def main():
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.info('Starting script')
 
-    consumer_key = os.environ['NYT_TWITTER_CONSUMER_KEY']
-    consumer_secret = os.environ['NYT_TWITTER_CONSUMER_SECRET']
-    access_token = os.environ['NYT_TWITTER_ACCESS_TOKEN']
-    access_token_secret = os.environ['NYT_TWITTER_ACCESS_TOKEN_SECRET']
+    consumer_key = os.environ['CANILLITA_TWITTER_CONSUMER_KEY']
+    consumer_secret = os.environ['CANILLITA_TWITTER_CONSUMER_SECRET']
+    access_token = os.environ['CANILLITA_TWITTER_ACCESS_TOKEN']
+    access_token_secret = os.environ['CANILLITA_TWITTER_ACCESS_TOKEN_SECRET']
     auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
     auth.secure = True
     auth.set_access_token(access_token, access_token_secret)
@@ -503,17 +445,17 @@ def main():
 
     try:
         logging.debug('Starting RSS')
-        #nyt_api_key = os.environ['NYT_API_KEY']
-        #nyt = NYTParser(nyt_api, nyt_api_key)
-        rss_url = os.environ['RSS_URL']
-        rss = RSSParser(twitter_api, rss_url)
+        rss_urls = ['https://www.elobservador.com.uy/rss/elobservador.xml', 'https://www.elpais.com.uy/rss/', 'http://brecha.com.uy/feed/']
+        rss = RSSParser(twitter_api, rss_urls)
         rss.parse_rss()
         logging.debug('Finished RSS')
-    except:
+    except Exception as e:
         logging.exception('RSS')
+        print(e)
 
     logging.info('Finished script')
 
 
 if __name__ == "__main__":
     main()
+
