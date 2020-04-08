@@ -17,4 +17,6 @@ six==1.10.0
 SQLAlchemy==1.0.15
 tweepy==3.8.0
 flask
-decouple
+python-decouple
+gunicorn
+Pillow
