@@ -1,18 +1,18 @@
 @font-face {
-    font-family: Bitter;
+    font-family: Merriweather;
     font-style: normal;
     font-weight: normal;
-    src: url('../fonts/Bitter-Regular.ttf') format("truetype");
+    src: url('../fonts/Merriweather-Regular.ttf') format("truetype");
 }
 
 body {
     background: lightgray url('../img/paper_fibers.png') repeat;
-    font-family: Bitter;
+    font-family: Merriweather;
     font-size: 20px;
 }
 
 p {
-    width: 35%;
+    width: 45%;
     margin-left: 2em;
     margin-right: 2em;
     margin-top: 1em;
