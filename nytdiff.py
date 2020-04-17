@@ -38,7 +38,7 @@ else:
 
 class BaseParser(object):
     def __init__(self, api):
-        self.urls = list()
+        self.rss_sites = list()
         self.payload = None
         self.articles = dict()
         self.current_ids = set()
@@ -225,13 +225,13 @@ class BaseParser(object):
         return True
 
     def __str__(self):
-        return ('\n'.join(self.urls))
+        return '\n'.join(self.rss_sites)
 
 
 class RSSParser(BaseParser):
-    def __init__(self, api, rss_urls):
+    def __init__(self, api, rss_sites):
         BaseParser.__init__(self, api)
-        self.urls = rss_urls
+        self.rss_sites = rss_sites
         self.articles_table = self.db['rss_ids']
         self.versions_table = self.db['rss_versions']
 
@@ -242,14 +242,14 @@ class RSSParser(BaseParser):
         article_dict['title'] = article.title
         article_dict['abstract'] = self.strip_html(article.description) if 'description'in article and \
                                                                            article.description is not None else ""
-        article_dict['author'] = article.author  if 'author' in article else ""
+        article_dict['author'] = article.author if 'author' in article else ""
         od = collections.OrderedDict(sorted(article_dict.items()))
         article_dict['hash'] = hashlib.sha224(
             repr(od.items()).encode('utf-8')).hexdigest()
         article_dict['date_time'] = datetime.now(LOCAL_TZ)
         return article_dict
 
-    def store_data(self, data):
+    def store_data(self, data, name, handler):
         if self.articles_table.find_one(article_id=data['article_id']) is None:  # New
             article = {
                 'article_id': data['article_id'],
@@ -290,28 +290,28 @@ class RSSParser(BaseParser):
                                        'article_id')
                     if row['title'] != data['title']:
                         if self.show_diff(row['title'], data['title']):
-                            tweet_text = "Modificación de Titulo"
+                            tweet_text = "Modificación de Titulo @%s" % handler
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
                     if row['abstract'] != data['abstract']:
                         if self.show_diff(row['abstract'], data['abstract']):
-                            tweet_text = "Modificación de la Descripción"
+                            tweet_text = "Modificación de la Descripción @%s" % handler
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
                     if row['author'] != data['author']:
                         if self.show_diff(row['author'], data['author']):
-                            tweet_text = "Modificación del autor"
+                            tweet_text = "Modificación del autor @%s" % handler
                             self.tweet(tweet_text, data['article_id'], url,
                                        'article_id')
 
-    def loop_entries(self, entries):
+    def loop_entries(self, entries, name, handler):
         if len(entries) == 0:
             return False
         for article in entries:
             try:
                 article_dict = self.entry_to_dict(article)
                 if article_dict is not None:
-                    self.store_data(article_dict)
+                    self.store_data(article_dict, name, handler)
                     self.current_ids.add(article_dict['article_id'])
             except BaseException as e:
                 logging.exception('Problem looping RSS: %s', article)
@@ -323,15 +323,15 @@ class RSSParser(BaseParser):
         return True
 
     def parse_rss(self):
-        for rss in self.urls:
-            logging.info('Parsing from %s', rss)
-            r = feedparser.parse(rss)
+        for rss in self.rss_sites:
+            logging.info('Parsing from %s', rss['name'])
+            r = feedparser.parse(rss['url'])
             if r is None:
                 logging.warning('Empty response RSS')
                 return
             elif 'title' in r.feed:
                 logging.info('Parsing %s', r.feed.title)
-                loop = self.loop_entries(r.entries)
+                loop = self.loop_entries(r.entries, rss['name'], rss['twitter'])
                 if loop:
                     self.remove_old('article_id')
             else:
@@ -356,9 +356,34 @@ def main():
 
     try:
         logging.debug('Starting RSS')
-        rss_urls = ['https://www.elobservador.com.uy/rss/elobservador.xml', 'https://www.elpais.com.uy/rss/',
-                    'http://brecha.com.uy/feed/', 'https://www.montevideo.com.uy/anxml.aspx?58']
-        rss = RSSParser(twitter_api, rss_urls)
+        rss_sites = [
+            {
+                'url': 'https://www.elobservador.com.uy/rss/elobservador.xml',
+                'name': 'El Observador',
+                'twitter': 'ObservadorUY'
+            },
+            {
+                'url': 'https://www.elpais.com.uy/rss/',
+                'name': 'El Pais',
+                'twitter': 'elpaisuy'
+            },
+            {
+                'url': 'http://brecha.com.uy/feed/',
+                'name': 'Brecha',
+                'twitter': 'SemanarioBrecha'
+            },
+            {
+                'url': 'https://www.montevideo.com.uy/anxml.aspx?58',
+                'name': 'Montevideo Porta',
+                'twitter': 'portalmvd'
+            },
+            {
+                'url': 'https://ladiaria.com.uy/feeds/articulos/',
+                'name': 'La diaria',
+                'twitter': 'ladiaria'
+            }
+        ]
+        rss = RSSParser(twitter_api, rss_sites)
         rss.parse_rss()
         logging.debug('Finished RSS')
     except Exception as e:
