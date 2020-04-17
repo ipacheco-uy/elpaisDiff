@@ -6,6 +6,8 @@ RSS feed fetching added for @xuv's twitter bot [@lesoir_diff](https://twitter.co
 [Twitter keys](https://dev.twitter.com/) are needed.  
 An RSS Url list is needed for any news website you want to track.
 
+Added support for mutiple rss feed websites, flask server and configuration for running in heroku.
+
 Installation
 ------------
 + The [chrome driver](https://chromedriver.chromium.org/) binary needs to be installed and in the path.
